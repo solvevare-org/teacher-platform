@@ -35,7 +35,7 @@ export default function TeacherDashboard() {
     status: "active"
   })
   const [isAddingStudent, setIsAddingStudent] = useState(false)
-  const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://31.97.41.27:4000'
+  const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://31.97.41.27:4002'
   const getApiUrl = (path: string) => `${API_BASE_URL}${path.startsWith('/') ? path : '/' + path}`
   useEffect(() => {
     // Client guard: allow when token exists; derive teacherId from token/localStorage
