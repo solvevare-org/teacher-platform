@@ -23,7 +23,7 @@ const Page = ({ params }: PageProps) => {
 
   useEffect(() => {
     // Fetch worksheet data based on worksheetId
-  const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://31.97.41.27:4002';
+    const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3004';
     const getApiUrl = (path: string) => `${API_BASE_URL}${path.startsWith('/') ? path : '/' + path}`;
     fetch(getApiUrl(`/api/worksheet/${worksheetId}`))
       .then((response) => response.json())

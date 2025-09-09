@@ -25,7 +25,7 @@ export default function CreateCoursePage() {
   const [studentsOpen, setStudentsOpen] = useState(false)
   const router = useRouter()
 
-  const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://31.97.41.27:4002'
+  const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3004';
   const getApiUrl = (path: string) => `${API_BASE_URL}${path.startsWith('/') ? path : '/' + path}`
   const authToken = typeof window !== 'undefined' ? (localStorage.getItem('auth_token') || '') : ''
   const getTeacherIdFromToken = (token: string): string => {

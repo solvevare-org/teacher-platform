@@ -1,4 +1,3 @@
-"use client";
 import React, { useState, useEffect } from 'react';
 import { useRef, useEffect as useReactEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
@@ -50,8 +49,8 @@ export default function TeacherChatInterface() {
   const [quizLink, setQuizLink] = useState('');
   const [lastFileMsgIndex, setLastFileMsgIndex] = useState<number | null>(null);
   const [lastUploadedFileName, setLastUploadedFileName] = useState<string | null>(null);
-  const parseBase = (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://31.97.41.27:4002');
-  const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://31.97.41.27:4002';
+  const parseBase = (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3004');
+  const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3004';
   const getApiUrl = (path: string) => `${API_BASE_URL}${path.startsWith('/') ? path : '/' + path}`;
   const chatEndRef = useRef<HTMLDivElement>(null);
   // Scroll to bottom on new message
