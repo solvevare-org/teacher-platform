@@ -50,7 +50,7 @@ export function FileUploadZone({
         const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3004';
         const getApiUrl = (path: string) => `${API_BASE_URL}${path.startsWith('/') ? path : '/' + path}`;
 
-        const response = await fetch(getApiUrl("/api/upload-file"), {
+        const response = await fetch(getApiUrl("/api/parse-image"), {
           method: "POST",
           body: formData,
         })

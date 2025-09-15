@@ -1,453 +1,513 @@
-"use client"
-import { useState, useEffect } from 'react';
+"use client";
+import { useState, useEffect, useMemo } from "react";
+import React from "react";
 
-export default function StudentQuizPage({ params }: { params: { id: string } }) {
-  const [email, setEmail] = useState('');
+interface QuizData {
+  id: string;
+  title: string;
+  description?: string;
+  html: string; // HTML content with Tailwind CSS
+  javascript: string; // JavaScript code to handle interactions
+  css?: string; // Optional additional CSS
+  context?: string; // Optional context for hints
+  metadata?: any;
+  teacherId?: string;
+  courseId?: string;
+  allowedStudents?: string[];
+  createdAt?: string;
+  reactCode?: string;
+  finalizedJson?: any;
+}
+
+// Extend Window interface for utility functions
+declare global {
+  interface Window {
+    submitQuiz: (answers: any, onSuccess?: any, onError?: any) => void;
+    saveProgress: (questionId: any, answer: any, onSaved?: any) => void;
+    getHint: (questionId: any, question: any, onHint?: any) => void;
+    checkAnswer: (
+      questionId: any,
+      userAnswer: any,
+      correctAnswer: any,
+      onResult?: any
+    ) => boolean;
+  }
+}
+
+export default function StudentQuizPage({
+  params,
+}: {
+  params: { id: string };
+}) {
+  const [email, setEmail] = useState("");
   const [verified, setVerified] = useState(false);
-  const [quiz, setQuiz] = useState<any>(null);
-  const [answers, setAnswers] = useState<any>({});
-  const [progress, setProgress] = useState<Record<string, 'correct' | 'incorrect' | 'incomplete'>>({});
-  const [hints, setHints] = useState<Record<string, string>>({});
-  const [submitted, setSubmitted] = useState(false);
-  const [score, setScore] = useState<number | null>(null);
+  const [quiz, setQuiz] = useState<QuizData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [currentQuestion, setCurrentQuestion] = useState(0);
+  const [verifying, setVerifying] = useState(false);
 
-  const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3004';
-  const getApiUrl = (path: string) => `${API_BASE_URL}${path.startsWith('/') ? path : '/' + path}`;
+  const API_BASE_URL =
+    process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3004";
+  const getApiUrl = (path: string) =>
+    `${API_BASE_URL}${path.startsWith("/") ? path : "/" + path}`;
 
+  // Inject CSS if provided
+  const injectCss = (css: string) => {
+    const style = document.createElement("style");
+    style.textContent = css;
+    document.head.appendChild(style);
+  };
+
+  // Inject script safely instead of eval
+  const injectScript = (code: string) => {
+    const script = document.createElement("script");
+    script.type = "text/javascript";
+    script.text = code;
+    document.body.appendChild(script);
+  };
+
+  // Setup quiz utilities
+  const setupUtilities = (quiz: QuizData) => {
+    window.submitQuiz = function (answers, onSuccess, onError) {
+      console.log("submitQuiz called with:", answers);
+      fetch(`${API_BASE_URL}/api/attempts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          quizId: quiz.id,
+          email: email,
+          answers,
+          submitted: true,
+        }),
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          console.log("Submit response:", data);
+          if (onSuccess) onSuccess(data);
+        })
+        .catch((err) => {
+          console.error("Submit error:", err);
+          if (onError) onError(err);
+        });
+    };
+
+    window.saveProgress = function (questionId, answer, onSaved) {
+      console.log("saveProgress called:", questionId, answer);
+      fetch(`${API_BASE_URL}/api/attempts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          quizId: quiz.id,
+          email: email,
+          answers: { [questionId]: answer },
+          progress: { [questionId]: "incomplete" },
+        }),
+      })
+        .then(() => {
+          if (onSaved) onSaved();
+        })
+        .catch(console.error);
+    };
+
+    window.getHint = function (questionId, question, onHint) {
+      console.log("getHint called:", questionId, question);
+      fetch(`${API_BASE_URL}/api/quizzes/${quiz.id}/hint`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          qid: questionId,
+          question: question,
+          context: quiz.context || "",
+        }),
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (onHint) onHint(data.hint || "No hint available");
+        })
+        .catch(() => {
+          if (onHint) onHint("Hint not available");
+        });
+    };
+
+    window.checkAnswer = function (
+      questionId,
+      userAnswer,
+      correctAnswer,
+      onResult
+    ) {
+      console.log("checkAnswer called:", questionId, userAnswer, correctAnswer);
+      const isCorrect =
+        String(userAnswer).toLowerCase().trim() ===
+        String(correctAnswer).toLowerCase().trim();
+      if (onResult) onResult(isCorrect);
+      return isCorrect;
+    };
+  };
+
+  // Load quiz JS + CSS after HTML is rendered
+  useEffect(() => {
+    if (quiz?.html) {
+      console.log("Quiz HTML loaded");
+
+      if (quiz.css) {
+        injectCss(quiz.css);
+      }
+
+      if (quiz.javascript) {
+        setupUtilities(quiz);
+        const id = setTimeout(() => {
+          console.log("Injecting quiz JS...");
+          console.log("Quiz JS to inject:", quiz.javascript);
+          injectScript(quiz.javascript);
+        }, 200);
+        return () => clearTimeout(id);
+      }
+    }
+  }, [quiz]);
+
+  // Fetch quiz after verification
   useEffect(() => {
     if (verified) {
       setError(null);
-      const emailQuery = email ? `?email=${encodeURIComponent(email)}` : ''
+      setLoading(true);
+      const emailQuery = email
+        ? `?email=${encodeURIComponent(email)}&format=html`
+        : "?format=html";
       fetch(getApiUrl(`/api/quizzes/${params.id}${emailQuery}`))
-        .then(res => res.json())
-        .then(data => {
+        .then((res) => res.json())
+        .then((data) => {
           if (!data || data.error) {
-            setError(data?.error || 'Quiz not found');
+            setError(data?.error || "Quiz not found");
             setQuiz(null);
             return;
           }
-          setQuiz(data.quiz || data);
+          const quizData = data.quiz || data;
+          setQuiz(quizData);
         })
-        .catch(() => setError('Failed to load quiz'));
-      // Prefill saved answers via attempts API
-      fetch(getApiUrl(`/api/attempts?quizId=${encodeURIComponent(params.id)}&email=${encodeURIComponent(email)}`))
-        .then(res => res.json())
-        .then(data => {
-          if (data?.attempt) {
-            setAnswers(data.attempt.answers || {});
-            setProgress(data.attempt.progress || {});
-            if (data.attempt.submitted) {
-              setScore(data.attempt.score || Object.values(data.attempt.progress || {}).filter((p: any) => p === 'correct').length);
-              setSubmitted(true);
-            }
-          }
-        })
-        .catch(() => {});
+        .catch(() => setError("Failed to load quiz"))
+        .finally(() => setLoading(false));
     }
   }, [verified, params.id, email]);
 
   const handleVerify = async () => {
-    setLoading(true);
+    if (!email.trim()) {
+      setError("Please enter your email address");
+      return;
+    }
+
+    setVerifying(true);
     setError(null);
-    try {
-      // First, check if user has already submitted this quiz
-      const attemptRes = await fetch(getApiUrl(`/api/attempts?quizId=${encodeURIComponent(params.id)}&email=${encodeURIComponent(email)}`));
-      const attemptData = await attemptRes.json();
-      
-      if (attemptData?.attempt?.submitted) {
-        // User has already submitted, redirect to score page
-        console.log('User already submitted, showing score page');
-        
-        // First load the quiz data, then set the attempt data
-        const quizRes = await fetch(getApiUrl(`/api/quizzes/${params.id}`));
-        const quizData = await quizRes.json();
-        
-        if (quizData?.quiz || quizData) {
-          setQuiz(quizData.quiz || quizData);
-          setAnswers(attemptData.attempt.answers || {});
-          setProgress(attemptData.attempt.progress || {});
-          setScore(attemptData.attempt.score || Object.values(attemptData.attempt.progress || {}).filter((p: any) => p === 'correct').length);
-          setSubmitted(true);
-        } else {
-          setError('Failed to load quiz data');
-        }
-        setLoading(false);
-        return;
-      }
-      
-      // If not submitted, check if email is allowed for this quiz
-      const peek = await fetch(getApiUrl(`/api/quizzes/${params.id}`)).then(r => r.json()).catch(() => null as any)
-      const list = (peek?.quiz?.allowedStudents ?? peek?.allowedStudents) as string[] | undefined
-      if (!Array.isArray(list) || list.length === 0) {
-        setVerified(true)
-        setLoading(false)
-        return
-      }
-      
-      // Otherwise, validate email against backend
-      const res = await fetch(getApiUrl(`/api/quizzes/${params.id}/verify`), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email }),
-    });
-    const data = await res.json();
-      setVerified(!!data.allowed);
-      if (!data.allowed && data.error) setError(data.error);
-    } catch {
-      setError('Network error');
-    } finally {
-    setLoading(false);
-    }
+    setVerified(true);
+    setVerifying(false);
   };
 
-  const handleAnswerChange = (qid: string, value: string | number) => {
-    // If already checked, do not allow edits
-    if (progress[qid] === 'correct' || progress[qid] === 'incorrect') return;
-    setAnswers((prev: any) => ({ ...prev, [qid]: value }));
-    setProgress((prev) => ({ ...prev, [qid]: 'incomplete' }));
-    // Auto-save upsert to attempts API with partial answers
-    fetch(getApiUrl(`/api/attempts`), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ quizId: params.id, email, answers: { [qid]: value }, progress: { [qid]: 'incomplete' } }),
-    }).catch(() => {});
-  };
+  // Fallback quiz component
+  const FallbackQuizComponent = useMemo(() => {
+    if (!quiz?.finalizedJson?.questions) return null;
 
-  const handleSubmit = async () => {
-    setLoading(true);
-    try {
-      console.log('Submitting quiz with:', { quizId: params.id, email, submitted: true, progress, answers });
-      
-      const res = await fetch(getApiUrl(`/api/attempts`), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ quizId: params.id, email, submitted: true, answers, progress }),
-    });
-      
-      console.log('Response status:', res.status);
-    const data = await res.json();
-      console.log('Submission response:', data);
-      
-      if (typeof data.score === 'number') {
-    setScore(data.score);
-      } else {
-        // If no score returned, calculate it from progress
-        const correctCount = Object.values(progress).filter(p => p === 'correct').length;
-        console.log('Calculated score from progress:', correctCount);
-        setScore(correctCount);
-      }
-    setSubmitted(true);
-    } catch (error) {
-      console.error('Submission error:', error);
-      setError('Failed to submit');
-    } finally {
-    setLoading(false);
-    }
-  };
+    return function FallbackQuiz() {
+      const [answers, setAnswers] = useState<Record<string, any>>({});
+      const questions = quiz.finalizedJson.questions;
 
-  if (score !== null || submitted) {
-    const questions = Array.isArray(quiz?.finalizedJson?.questions) ? quiz.finalizedJson.questions : [];
-    const totalQuestions = questions.length;
-    const finalScore = score !== null ? score : Object.values(progress).filter(p => p === 'correct').length;
-    const percentage = totalQuestions > 0 ? Math.round((finalScore / totalQuestions) * 100) : 0;
-    
-    console.log('Score page debug:', { 
-      quiz: !!quiz, 
-      totalQuestions, 
-      finalScore, 
-      percentage, 
-      questions: questions.length,
-      quizData: quiz?.finalizedJson 
-    });
-    
-    // If we don't have quiz data yet, show loading
-    if (!quiz || totalQuestions === 0) {
+      const handleAnswerChange = (questionId: string, answer: any) => {
+        setAnswers((prev) => ({ ...prev, [questionId]: answer }));
+      };
+
+      const handleSubmit = () => {
+        console.log("Quiz submitted:", answers);
+        alert("Quiz submitted successfully!");
+      };
+
       return (
-        <div className="min-h-screen bg-gradient-to-br from-blue-50 to-blue-100 p-4 flex items-center justify-center">
-          <div className="max-w-md w-full">
-            <div className="bg-white rounded-lg shadow-lg p-8 text-center">
-              <div className="text-gray-600 text-lg">Loading quiz results...</div>
-            </div>
+        <div className="space-y-8">
+          <div className="text-center mb-8">
+            <h2 className="text-3xl font-bold text-gray-900 mb-4">
+              {quiz.title}
+            </h2>
+            {quiz.description && (
+              <p className="text-gray-600 text-lg">{quiz.description}</p>
+            )}
+          </div>
+
+          <div className="space-y-6">
+            {questions.map((question: any, index: number) => (
+              <div
+                key={question.id || index}
+                className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm"
+              >
+                <h3 className="text-xl font-semibold text-gray-900 mb-4">
+                  {index + 1}. {question.question || question.text}
+                </h3>
+
+                {question.type === "multiple-choice" && question.options ? (
+                  <div className="space-y-3">
+                    {question.options.map(
+                      (option: string, optIndex: number) => (
+                        <label
+                          key={optIndex}
+                          className="flex items-center space-x-3 p-3 hover:bg-gray-50 rounded-lg cursor-pointer transition-colors"
+                        >
+                          <input
+                            type="radio"
+                            name={`question-${index}`}
+                            value={optIndex}
+                            onChange={(e) =>
+                              handleAnswerChange(
+                                question.id || `q${index}`,
+                                e.target.value
+                              )
+                            }
+                            className="w-4 h-4 text-blue-600 focus:ring-blue-500"
+                          />
+                          <span className="text-gray-700 flex-1">{option}</span>
+                        </label>
+                      )
+                    )}
+                  </div>
+                ) : (
+                  <textarea
+                    placeholder="Type your answer here..."
+                    rows={4}
+                    onChange={(e) =>
+                      handleAnswerChange(
+                        question.id || `q${index}`,
+                        e.target.value
+                      )
+                    }
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                  />
+                )}
+              </div>
+            ))}
+          </div>
+
+          <div className="text-center pt-8">
+            <button
+              onClick={handleSubmit}
+              className="bg-blue-600 text-white px-8 py-3 rounded-lg hover:bg-blue-700 transition-colors font-semibold text-lg shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
+            >
+              Submit Quiz
+            </button>
           </div>
         </div>
       );
-    }
-    
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-blue-100 p-4">
-        <div className="max-w-2xl mx-auto">
-          {/* Header */}
-          <div className="text-center mb-8">
-            <h1 className="text-4xl font-bold text-blue-900 mb-2">Quiz Complete!</h1>
-            <div className="bg-white rounded-lg shadow-lg p-6">
-              <h2 className="text-2xl font-bold text-gray-800 mb-4">{quiz?.finalizedJson?.title || 'Quiz Results'}</h2>
-              <div className="text-sm text-gray-600 mb-4">
-                {submitted ? 'Your quiz has been submitted and scored.' : 'Quiz results'}
-              </div>
-              
-              {/* Score Display */}
-              <div className="text-center mb-6">
-                <div className="text-6xl font-bold text-green-600 mb-2">{finalScore}/{totalQuestions}</div>
-                <div className="text-2xl text-gray-600 mb-2">{percentage}%</div>
-                <div className="text-lg text-gray-500">
-                  {percentage >= 80 ? 'Excellent work!' : 
-                   percentage >= 60 ? 'Good job!' : 
-                   percentage >= 40 ? 'Keep practicing!' : 'Try again!'}
-                </div>
-              </div>
-              
-              {/* Detailed Results */}
-              <div className="space-y-3">
-                <h3 className="text-lg font-semibold text-gray-800 mb-3">Question Review:</h3>
-                {questions.map((q: any, idx: number) => {
-                  const qid = q.id || String(idx);
-                  const userAnswer = answers[qid];
-                  const isCorrect = progress[qid] === 'correct';
-                  const isMCQ = Array.isArray(q.options);
-                  
-    return (
-                    <div key={qid} className={`p-3 rounded-lg border-l-4 ${
-                      isCorrect ? 'bg-green-50 border-green-400' : 'bg-red-50 border-red-400'
-                    }`}>
-                      <div className="font-medium text-gray-800 mb-1">
-                        Q{idx + 1}: {q.question}
-                      </div>
-                      <div className="text-sm text-gray-600">
-                        <div>Your answer: {isMCQ && userAnswer !== '' ? q.options[Number(userAnswer)] : userAnswer || 'No answer'}</div>
-                        {isMCQ && (
-                          <div>Correct answer: {q.options[q.correctAnswer]}</div>
-                        )}
-                        {q.explanation && (
-                          <div className="mt-1 text-blue-600">Explanation: {q.explanation}</div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              
-              <div className="mt-6 text-center">
-                <button 
-                  onClick={() => window.location.reload()}
-                  className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-                >
-                  Take Quiz Again
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
+    };
+  }, [quiz]);
 
+  // Email verification screen
   if (!verified) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-blue-100 p-4 flex items-center justify-center">
-        <div className="max-w-md w-full">
-          <div className="bg-white rounded-lg shadow-lg p-8">
-            <h2 className="text-2xl font-bold text-gray-800 mb-6 text-center">Enter your email to start the quiz</h2>
-            {error && <div className="text-red-600 text-sm mb-4 p-3 bg-red-50 border border-red-200 rounded">{error}</div>}
-        <input
-              className="border border-gray-300 rounded-lg px-4 py-3 w-full mb-6 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          value={email}
-          onChange={e => setEmail(e.target.value)}
-          placeholder="Your email"
-              type="email"
-            />
-            <button 
-              className="bg-blue-500 text-white px-6 py-3 rounded-lg font-semibold w-full hover:bg-blue-600 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed" 
-              onClick={handleVerify} 
-              disabled={loading || !email}
-            >
-              {loading ? 'Verifying...' : 'Start Quiz'}
-        </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-blue-100 p-4 flex items-center justify-center">
-        <div className="max-w-md w-full">
-          <div className="bg-white rounded-lg shadow-lg p-8 text-center">
-            <div className="text-red-600 text-lg font-semibold">{error}</div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (!quiz) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-blue-100 p-4 flex items-center justify-center">
-        <div className="max-w-md w-full">
-          <div className="bg-white rounded-lg shadow-lg p-8 text-center">
-            <div className="text-gray-600 text-lg">Loading quiz...</div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Derive finalized structure
-  const qjson = quiz.finalizedJson || quiz
-  const questions: any[] = Array.isArray(qjson?.questions) ? qjson.questions : []
-  const title: string = qjson?.title || 'Quiz'
-
-  const currentQ = questions[currentQuestion];
-  const qid = currentQ?.id || String(currentQuestion);
-  const value = answers[qid] ?? '';
-  const isMCQ = Array.isArray(currentQ?.options);
-  const state = progress[qid];
-  const isLocked = state === 'correct' || state === 'incorrect';
-
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-blue-100 p-4">
-      <div className="max-w-4xl mx-auto">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-blue-900 mb-2">{title}</h1>
-          <div className="bg-white rounded-lg shadow-lg p-4">
-            <h2 className="text-2xl font-bold text-gray-800">{title}</h2>
-          </div>
-        </div>
-
-        {/* Questions Card */}
-        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
-          <h3 className="text-xl font-bold text-gray-800 mb-6">Questions</h3>
-          
-          {currentQ && (
-            <div className="mb-6">
-              <div className="font-semibold text-lg mb-4 text-gray-800">
-                Q{currentQuestion + 1}: {currentQ.question}
-              </div>
-              
-              {isMCQ ? (
-            <select
-                  className="border border-gray-300 rounded-lg px-4 py-3 w-full text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  value={value}
-                  onChange={e => handleAnswerChange(qid, e.target.value)}
-                  disabled={submitted || isLocked}
-                >
-                  <option value="">-- Select an option --</option>
-                  {currentQ.options.map((opt: string, i: number) => (
-                    <option key={i} value={i}>{opt}</option>
-              ))}
-            </select>
-          ) : (
-            <input
-                  className="border border-gray-300 rounded-lg px-4 py-3 w-full text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  value={value}
-                  onChange={e => handleAnswerChange(qid, e.target.value)}
-                  disabled={submitted || isLocked}
-                  placeholder="Enter your answer"
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+        <div className="bg-white rounded-xl shadow-lg p-8 w-full max-w-md">
+          <div className="text-center mb-6">
+            <div className="mx-auto w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mb-4">
+              <svg
+                className="w-8 h-8 text-blue-600"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
                 />
+              </svg>
+            </div>
+            <h1 className="text-2xl font-bold text-gray-900 mb-2">
+              Enter Your Email
+            </h1>
+            <p className="text-gray-600">
+              Please enter your email address to start the quiz.
+            </p>
+          </div>
+
+          <div className="space-y-4">
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              onKeyPress={(e) => e.key === "Enter" && handleVerify()}
+              placeholder="Enter your email address"
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
+              disabled={verifying}
+            />
+
+            <button
+              onClick={handleVerify}
+              disabled={!email.trim() || verifying}
+              className="w-full bg-blue-600 text-white py-3 px-4 rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors font-medium flex items-center justify-center"
+            >
+              {verifying ? (
+                <>
+                  <svg
+                    className="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    ></circle>
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 
+                      5.291A7.962 7.962 0 014 12H0c0 
+                      3.042 1.135 5.824 3 7.938l3-2.647z"
+                    ></path>
+                  </svg>
+                  Starting...
+                </>
+              ) : (
+                "Start Quiz"
               )}
-              
-              <div className="mt-4 flex gap-3 items-center">
-                <button
-                  className="bg-green-500 text-white px-4 py-2 rounded-lg font-semibold hover:bg-green-600 transition-colors"
-                  type="button"
-                  onClick={async () => {
-                    if (currentQ?.hint) {
-                      setHints(prev => ({ ...prev, [qid]: String(currentQ.hint) }))
-                    } else {
-                      const res = await fetch(getApiUrl(`/api/quizzes/${params.id}/hint`), {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ qid, question: currentQ.question, context: qjson.context || '' }),
-                      });
-                      const data = await res.json();
-                      setHints(prev => ({ ...prev, [qid]: String(data.hint || '') }))
-                    }
-                  }}
-                >
-                  Hint
-                </button>
-                <button
-                  className="bg-green-500 text-white px-4 py-2 rounded-lg font-semibold hover:bg-green-600 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
-                  type="button"
-                  onClick={() => {
-                    if (isLocked) return
-                    if (isMCQ && currentQ.correctAnswer !== undefined && value !== '') {
-                      const correct = Number(value) === Number(currentQ.correctAnswer)
-                      const next = correct ? 'correct' : 'incorrect'
-                      setProgress(prev => ({ ...prev, [qid]: next }))
-                      // Optional: persist progress
-                      fetch(getApiUrl(`/api/attempts`), {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ quizId: params.id, email, progress: { [qid]: next } }),
-                      }).catch(() => {})
-                    }
-                  }}
-                  disabled={isLocked || value === ''}
-                >
-                  Check
-                </button>
-                {state === 'correct' && <span className="text-green-600 font-semibold">Correct!</span>}
-                {state === 'incorrect' && <span className="text-red-600 font-semibold">Incorrect.</span>}
-              </div>
-              
-              {hints[qid] && (
-                <div className="mt-4 p-3 bg-blue-50 border-l-4 border-blue-400 rounded">
-                  <div className="text-sm text-blue-800">
-                    <strong>Hint:</strong> {hints[qid]}
-                  </div>
-                </div>
-              )}
+            </button>
+          </div>
+
+          {error && (
+            <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+              <p className="text-red-600 text-sm text-center">{error}</p>
             </div>
           )}
         </div>
+      </div>
+    );
+  }
 
-        {/* Navigation */}
-        <div className="flex justify-center gap-4 mb-6">
-          <button
-            className="bg-green-500 text-white px-6 py-2 rounded-lg font-semibold hover:bg-green-600 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
-            onClick={() => setCurrentQuestion(Math.max(0, currentQuestion - 1))}
-            disabled={currentQuestion === 0}
-          >
-            Previous
-          </button>
-          <button
-            className="bg-green-500 text-white px-6 py-2 rounded-lg font-semibold hover:bg-green-600 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
-            onClick={() => setCurrentQuestion(Math.min(questions.length - 1, currentQuestion + 1))}
-            disabled={currentQuestion === questions.length - 1}
-          >
-            Next
-          </button>
-        </div>
-
-        {/* Progress Indicator */}
-        <div className="text-center mb-6">
-          <div className="text-sm text-gray-600 mb-2">
-            Question {currentQuestion + 1} of {questions.length}
-          </div>
-          <div className="w-full bg-gray-200 rounded-full h-2">
-            <div 
-              className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-              style={{ width: `${((currentQuestion + 1) / questions.length) * 100}%` }}
-            ></div>
-          </div>
-        </div>
-
-        {/* Submit Button */}
+  // Loading state
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
         <div className="text-center">
-          <button 
-            className="bg-green-500 text-white px-8 py-3 rounded-lg font-semibold text-lg hover:bg-green-600 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
-            onClick={handleSubmit} 
-            disabled={submitted || loading}
-          >
-            {loading ? 'Submitting...' : 'Submit Quiz'}
-      </button>
+          <div className="animate-spin rounded-full h-16 w-16 border-4 border-blue-200 border-t-blue-600 mx-auto mb-4"></div>
+          <h2 className="text-xl font-semibold text-gray-700 mb-2">
+            Loading Quiz
+          </h2>
+          <p className="text-gray-500">
+            Please wait while we prepare your interactive quiz...
+          </p>
         </div>
       </div>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-red-50 to-pink-100 flex items-center justify-center p-4">
+        <div className="bg-white rounded-xl shadow-lg p-8 w-full max-w-md text-center">
+          <div className="mx-auto w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4">
+            <svg
+              className="w-8 h-8 text-red-600"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 
+                1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 
+                0L4.082 16.5c-.77.833.192 2.5 
+                1.732 2.5z"
+              />
+            </svg>
+          </div>
+          <h1 className="text-2xl font-bold text-gray-900 mb-4">
+            Oops! Something went wrong
+          </h1>
+          <p className="text-gray-600 mb-6">{error}</p>
+          <div className="space-y-3">
+            <button
+              onClick={() => window.location.reload()}
+              className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors font-medium"
+            >
+              Try Again
+            </button>
+            <button
+              onClick={() => setVerified(false)}
+              className="w-full bg-gray-200 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-300 transition-colors font-medium"
+            >
+              Back to Email Verification
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Main quiz interface
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Quiz Header */}
+      <header className="bg-white shadow-sm border-b sticky top-0 z-10">
+        <div className="max-w-6xl mx-auto px-4 py-4 sm:py-6">
+          <div className="flex justify-between items-center">
+            <div>
+              <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
+                {quiz?.title || "Interactive Quiz"}
+              </h1>
+              {quiz?.description && (
+                <p className="text-gray-600 mt-1">{quiz.description}</p>
+              )}
+            </div>
+            <div className="text-right">
+              <p className="text-sm text-gray-500">Student</p>
+              <p className="text-sm font-medium text-gray-700">{email}</p>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* Quiz Content */}
+      <main className="max-w-6xl mx-auto px-4 py-6 sm:py-8">
+        <div className="bg-gray-50 rounded-xl min-h-[600px]">
+          {quiz?.html ? (
+            <div
+              className="quiz-content"
+              dangerouslySetInnerHTML={{ __html: quiz.html }}
+            />
+          ) : FallbackQuizComponent ? (
+            <FallbackQuizComponent />
+          ) : (
+            <div className="p-8 text-center">
+              <div className="mx-auto w-16 h-16 bg-yellow-100 rounded-full flex items-center justify-center mb-4">
+                <svg
+                  className="w-8 h-8 text-yellow-600"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 9v2m0 4h.01m-6.938 
+                    4h13.856c1.54 0 2.502-1.667 
+                    1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 
+                    0L4.082 16.5c-.77.833.192 2.5 
+                    1.732 2.5z"
+                  />
+                </svg>
+              </div>
+              <h2 className="text-xl font-semibold text-gray-900 mb-2">
+                No quiz content available
+              </h2>
+              <p className="text-gray-600">
+                The quiz could not be loaded. Please try again later.
+              </p>
+            </div>
+          )}
+        </div>
+      </main>
     </div>
   );
 }
